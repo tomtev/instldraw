@@ -1,0 +1,148 @@
+# Next.js React TypeScript Development Guidelines
+
+## Overview
+You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.
+
+## Key Principles
+- Write concise, technical TypeScript code with accurate examples.
+- Use functional and declarative programming patterns; avoid classes.
+- Prefer iteration and modularization over code duplication.
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError).
+- Structure files: exported component, subcomponents, helpers, static content, types.
+
+## Naming Conventions
+- Use lowercase with dashes for directories (e.g., components/auth-wizard).
+- Favor named exports for components.
+
+## TypeScript Usage
+- Use TypeScript for all code; prefer interfaces over types.
+- Avoid enums; use maps instead.
+- Use functional components with TypeScript interfaces.
+
+## Syntax and Formatting
+- Use the "function" keyword for pure functions.
+- Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements.
+- Use declarative JSX.
+
+## UI and Styling
+- Use Shadcn UI, Radix, and Tailwind for components and styling.
+- Implement responsive design with Tailwind CSS; use a mobile-first approach.
+
+## Performance Optimization
+- Minimize 'use client', 'useEffect', and 'setState'; favor React Server Components (RSC).
+- Wrap client components in Suspense with fallback.
+- Use dynamic loading for non-critical components.
+- Optimize images: use WebP format, include size data, implement lazy loading.
+
+## Key Conventions
+- Use 'nuqs' for URL search parameter state management.
+- Optimize Web Vitals (LCP, CLS, FID).
+- Limit 'use client':
+  - Favor server components and Next.js SSR.
+  - Use only for Web API access in small components.
+  - Avoid for data fetching or state management.
+
+> Follow Next.js docs for Data Fetching, Rendering, and Routing.
+
+# TLDraw ShapeUtil Reference
+
+## Overview
+You are an expert in TLDraw's shape utilities and custom shape development.
+
+## Key Concepts
+- ShapeUtil is the base class for implementing custom shapes
+- Each shape type needs a unique ShapeUtil implementation
+- Shape utilities handle rendering, transformations, and interactions
+
+## Core Methods
+- render(): Renders the shape using HTML/SVG
+- indicator(): Renders shape selection indicators
+- getGeometry(): Returns shape's geometric properties
+- onResize(): Handles shape resizing logic
+- onResizeEnd(): Finalizes shape after resize
+- onTranslate(): Handles shape movement
+- onRotate(): Manages shape rotation
+
+## Type Definitions
+- Use TLShape for base shape interface
+- Extend TLBaseShape for custom shapes
+- Implement Geometry2d for shape bounds
+
+## Event Handlers
+- Handle pointer events (click, drag, etc.)
+- Implement transform callbacks
+- Use transform snapshots for undo/redo
+
+## Best Practices
+- Keep shape utils pure and stateless
+- Use geometric utilities for calculations
+- Implement proper type safety
+- Cache computed values when possible
+- Handle all transform scenarios
+
+## Performance
+- Optimize render methods
+- Use memoization for expensive calculations
+- Minimize DOM updates
+- Handle large canvas performance
+
+## Transformations
+- Support all transform operations:
+  - resize
+  - rotate
+  - translate
+  - scale
+- Maintain aspect ratio when needed
+- Handle snapping and constraints
+
+## Geometry
+- Work with bounds and points
+- Use proper coordinate systems
+- Handle different units (px, %)
+- Implement proper hit testing
+
+> Follow TLDraw documentation for Shape Development and Utilities.
+
+# BaseBoxShapeUtil Development
+
+## Overview
+BaseBoxShapeUtil extends ShapeUtil for box-like shapes that can be resized, rotated, and translated.
+
+## Implementation
+```typescript
+abstract class BaseBoxShapeUtil<Shape extends TLBaseBoxShape> extends ShapeUtil<Shape> {
+  // Required implementations
+  abstract getGeometry(shape: Shape): Geometry2d
+  abstract component(shape: Shape): any
+  abstract indicator(shape: Shape): any
+  abstract getDefaultProps(): Shape['props']
+}
+```
+
+## Core Methods
+- getGeometry(): Must return Geometry2d for the shape's bounds
+- component(): Returns JSX for rendering the shape
+- indicator(): Returns JSX for shape's selection indicator
+- getDefaultProps(): Returns default properties for new shapes
+
+## Event Handlers
+- onResize(shape, info: TLResizeInfo): Handle shape resizing
+- onResizeEnd(initial, current): Post-resize cleanup
+- onRotate(initial, current): Handle rotation changes
+- onTranslate(initial, current): Handle movement
+
+## Optional Methods
+- onBeforeCreate(shape): Pre-creation modifications
+- onBeforeUpdate(prev, next): Pre-update modifications
+- getHandles(shape): Custom handle definitions
+- onHandleDrag(shape, info): Handle interaction
+- canEdit(shape): Enable/disable editing
+
+## Best Practices
+- Implement proper bounds calculation in getGeometry()
+- Handle aspect ratio constraints when needed
+- Maintain shape integrity during transformations
+- Cache expensive calculations
+- Use proper type safety with generics
+
+> Extend BaseBoxShapeUtil for shapes that follow a rectangular bounding model

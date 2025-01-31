@@ -12,6 +12,7 @@ import {
   uniqueId,
   TLShapeId,
   TLStore,
+  TLShape,
 } from "tldraw";
 import { SectionShapeUtil } from '@/components/SectionTool'
 import { PageShapeUtil } from '@/components/PageTool'
@@ -104,8 +105,10 @@ export function useInstantStore({
       // Migrate container types to page and add bg to sections
       const migratedState = Object.fromEntries(
         Object.entries(state).map(([key, value]) => {
+          if (!isShape(value)) return [key, value]
+          
           // Rename container to page
-          if (value?.type === 'container') {
+          if (value.type === 'container') {
             return [
               key,
               {
@@ -114,8 +117,9 @@ export function useInstantStore({
               }
             ]
           }
+          
           // Add default bg and textStyle to sections
-          if (value?.type === 'section') {
+          if (value.type === 'section') {
             return [
               key,
               {
@@ -125,17 +129,6 @@ export function useInstantStore({
                   bg: value.props?.bg ?? 'rgba(255,255,255,0.5)',
                   textStyle: value.props?.textStyle ?? 'heading',
                 },
-              }
-            ]
-          }
-          // Ensure stack positions are numbers
-          if (value?.type === 'stack') {
-            return [
-              key,
-              {
-                ...value,
-                x: typeof value.x === 'number' ? value.x : 0,
-                y: typeof value.y === 'number' ? value.y : 0,
               }
             ]
           }
@@ -221,21 +214,20 @@ function tldrawEventToStateSlice(
   return state;
 }
 
+function isShape(value: InstantTLRecord): value is TLShape {
+  return 'type' in value && typeof value.type === 'string'
+}
+
 function syncInstantStateToTldrawStore(
   store: TLStore,
   state: DrawingState,
   localSourceId: string
 ) {
   const migratedUpdates = Object.values(state).map((item) => {
-    // Migrate container to page
-    if (item?.type === 'container') {
-      return {
-        ...item,
-        type: 'page',
-      }
-    }
+    if (!isShape(item)) return item
+
     // Migrate section bg and textStyle
-    if (item?.type === 'section') {
+    if (item.type === 'section') {
       return {
         ...item,
         props: {

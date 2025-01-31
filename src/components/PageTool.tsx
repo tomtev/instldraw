@@ -1,13 +1,13 @@
 import {
-  BaseBoxShapeTool,
   TLBaseShape,
   ShapeUtil,
   HTMLContainer,
   T,
   Rectangle2d,
-  TLResizeInfo,
   Vec,
   createShapeId,
+  TLTool,
+  StateNode,
 } from 'tldraw'
 
 type PageShape = TLBaseShape<
@@ -42,6 +42,10 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
     bindingType: string 
   }) {
     return fromShapeType === 'page' && toShapeType === 'section' && bindingType === 'layout'
+  }
+
+  canMove() {
+    return false
   }
 
   canEdit() {
@@ -86,52 +90,44 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
   indicator(shape: PageShape) {
     return <rect width={shape.props.width} height={shape.props.height} />
   }
+
+  onTranslate = (shape: PageShape) => {
+    return {
+      ...shape,
+      x: 0,
+      y: 0,
+    }
+  }
 }
 
-export class PageTool extends BaseBoxShapeTool {
+export class PageTool extends StateNode implements TLTool {
   static id = 'page'
   static initial = 'idle'
   shapeType = 'page'
-  
-  private initialShapeId?: string
 
-  onDragStart = () => {
-    const { originPagePoint } = this.editor.inputs
+  onEnter = () => {
+    this.editor.setCursor({ type: 'cross' })
+  }
+
+  onExit = () => {
+    this.editor.setCursor({ type: 'default' })
+  }
+
+  onPointerDown = () => {
     const id = createShapeId()
-    this.initialShapeId = id
     
     this.editor.createShape({
       id,
       type: 'page',
-      x: originPagePoint.x,
-      y: originPagePoint.y,
+      x: 0,
+      y: 0,
       props: {
         width: 1200,
         height: 600,
       },
     })
-  }
 
-  onDragMove = () => {
-    if (!this.initialShapeId) return
+    this.editor.complete()
     
-    const { originPagePoint, currentPagePoint } = this.editor.inputs
-    const minWidth = 800
-    const minHeight = 600
-    
-    this.editor.updateShape({
-      id: this.initialShapeId,
-      type: 'page',
-      x: Math.min(originPagePoint.x, currentPagePoint.x),
-      y: Math.min(originPagePoint.y, currentPagePoint.y),
-      props: {
-        width: Math.max(minWidth, Math.abs(currentPagePoint.x - originPagePoint.x)),
-        height: Math.max(minHeight, Math.abs(currentPagePoint.y - originPagePoint.y)),
-      },
-    })
-  }
-
-  onDragEnd = () => {
-    this.initialShapeId = undefined
   }
 } 

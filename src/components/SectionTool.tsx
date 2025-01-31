@@ -391,60 +391,8 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     })
   }
 
-  override getShapeUtil(shape: ICustomShape) {
-    return {
-      settings: [
-        {
-          id: 'bg',
-          type: 'color',
-          label: 'Background',
-          defaultValue: 'rgba(255,255,255,0.5)',
-          onValueChange: (value: string) => {
-            this.editor.updateShape({
-              id: shape.id,
-              type: 'section',
-              props: {
-                ...shape.props,
-                bg: value,
-              },
-            })
-          },
-        },
-        {
-          id: 'textStyle',
-          type: 'select',
-          label: 'Text Style',
-          defaultValue: 'heading',
-          options: [
-            { value: 'heading', label: 'Heading' },
-            { value: 'subheading', label: 'Subheading' },
-            { value: 'body', label: 'Body' },
-          ],
-          onValueChange: (value: SectionTextStyle) => {
-            this.editor.updateShape({
-              id: shape.id,
-              type: 'section',
-              props: {
-                ...shape.props,
-                textStyle: value,
-              },
-            })
-          },
-        },
-      ],
-    }
-  }
 
-  // Add this validation method
-  override validateProps(props: Partial<ICustomShape['props']>): ICustomShape['props'] {
-    return {
-      w: typeof props.w === 'number' ? props.w : 1200,
-      h: typeof props.h === 'number' ? props.h : 500,
-      text: typeof props.text === 'string' ? props.text : 'Section',
-      bg: typeof props.bg === 'string' ? props.bg : 'rgba(255,255,255,0.5)',
-      textStyle: sectionTextStyle.validate(props.textStyle) ?? 'heading',
-    }
-  }
+
 
   override onAfterHistoryChange = () => {
     // Refresh all container layouts when history changes
@@ -474,6 +422,69 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
 
   override onDoubleClick = (shape: ICustomShape) => {
     this.editor.setEditingShape(shape.id)
+  }
+
+  // Add this override for duplication
+  override onDuplicate = (shape: ICustomShape, offset: Vec) => {
+    const binding = this.editor.getBindingsToShape(shape, 'layout')[0]
+    if (!binding) return
+
+    const container = this.editor.getShape(binding.fromId)
+    if (!container) return
+
+    // Get all existing bindings to find the last index
+    const bindings = this.editor.getBindingsFromShape(container, 'layout')
+      .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+
+    // Get the last binding
+    const lastBinding = bindings[bindings.length - 1]
+    const lastIndex = lastBinding?.props?.index
+
+    // Create new index after the last one
+    const newIndex = getIndexBetween(lastIndex, null)
+
+    // Create the duplicated shape at the container's position
+    const duplicatedShape = {
+      ...shape,
+      id: createShapeId(),
+      x: container.x, // Position at container's x
+      y: container.y, // Position at container's y - will be adjusted by layout
+      props: {
+        ...shape.props,
+        text: `${shape.props.text} (copy)` // Add (copy) to the text
+      }
+    }
+
+    // Create binding for the duplicated shape
+    this.editor.batch(() => {
+      // Create the duplicated shape first
+      const newShape = this.editor.createShape(duplicatedShape)
+
+      // Create binding to the same container
+      this.editor.createBinding({
+        id: createBindingId(),
+        type: 'layout',
+        fromId: container.id,
+        toId: newShape.id,
+        props: {
+          index: newIndex,
+          placeholder: false,
+        },
+      })
+
+      // Reparent the duplicated shape to the same container
+      this.editor.reparentShapes([newShape.id], container.id)
+
+      // Force container layout refresh
+      this.editor.updateShape({
+        id: container.id,
+        type: container.type,
+        x: container.x,
+        y: container.y,
+      })
+    })
+
+    return duplicatedShape
   }
 }
 
@@ -505,9 +516,7 @@ export class SectionTool extends StateNode {
         x: currentPagePoint.x - 100,
         y: currentPagePoint.y - 50,
         props: {
-          w: 200,
-          h: 100,
-          text: 'Section'
+          text: '123'
         },
       })
 

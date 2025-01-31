@@ -20,6 +20,8 @@ import { PageTool, PageShapeUtil } from './PageTool'
 import { SectionTool, SectionShapeUtil } from './SectionTool'
 import { LayoutBindingUtil } from './LayoutBindingUtil'
 import { StackTool, StackShapeUtil } from './StackTool'
+import { useCallback, useEffect, useState } from 'react'
+import { Editor, TLEventMapHandler } from 'tldraw'
 
 const components: TLComponents = {
   Toolbar: (props) => {
@@ -103,7 +105,7 @@ const CAMERA_OPTIONS: TLCameraOptions = {
     baseZoom: 'fit-x',
     bounds: { x: 0, y: 0, w: 1200, h: 3000 },
     behavior: { x: 'contain', y: 'free' },
-    padding: { x: 100, y: 100 },
+    padding: { x: 10, y: 10 },
     origin: { x: 0.5, y: 0.5 },
   },
 }
@@ -117,6 +119,82 @@ export function TLDrawEditor({
   drawingId: string;
   user: { id: string; color: string; name: string };
 }) {
+  const [editor, setEditor] = useState<Editor>()
+
+  const handleMount = useCallback((editor: Editor) => {
+    setEditor(editor)
+  }, [])
+
+  useEffect(() => {
+    if (!editor) return
+
+    const handleChangeEvent: TLEventMapHandler<'change'> = (change) => {
+      // Log created shapes
+      for (const record of Object.values(change.changes.added)) {
+        if (record.typeName === 'shape') {
+          console.log(`Created: ${record.type} shape`, {
+            id: record.id,
+            type: record.type,
+            x: record.x,
+            y: record.y,
+            props: record.props,
+            parentId: record.parentId,
+            index: record.index,
+          })
+        }
+      }
+
+      // Log updated shapes
+      for (const [from, to] of Object.values(change.changes.updated)) {
+        if (from.typeName === 'instance' && to.typeName === 'instance' && 
+            from.currentPageId !== to.currentPageId) {
+          console.log(`Changed page: ${from.currentPageId} → ${to.currentPageId}`)
+        } else if (from.typeName === 'shape' && to.typeName === 'shape') {
+          console.log(`Updated: ${to.type} shape`, {
+            id: to.id,
+            type: to.type,
+            from: {
+              x: from.x,
+              y: from.y,
+              props: from.props
+            },
+            to: {
+              x: to.x,
+              y: to.y,
+              props: to.props
+            },
+            parentId: to.parentId,
+            index: to.index,
+          })
+        }
+      }
+
+      // Log deleted shapes
+      for (const record of Object.values(change.changes.removed)) {
+        if (record.typeName === 'shape') {
+          console.log(`Deleted: ${record.type} shape`, {
+            id: record.id,
+            type: record.type,
+            x: record.x,
+            y: record.y,
+            props: record.props,
+            parentId: record.parentId,
+            index: record.index,
+          })
+        }
+      }
+    }
+
+    const cleanup = editor.store.listen(handleChangeEvent, { 
+      source: 'user', 
+      scope: 'all' 
+    })
+
+    return () => {
+      cleanup()
+    }
+  }, [editor])
+
   return (
     <div className="w-full h-full bg-gray-100">
       <Tldraw
@@ -136,6 +214,7 @@ export function TLDrawEditor({
         options={{ maxPages: 1 }}
         cameraOptions={CAMERA_OPTIONS}
         className="bg-transparent"
+        onMount={handleMount}
       >
         {drawingId ? (
           <InstantTldrawCursors
