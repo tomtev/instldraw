@@ -281,7 +281,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
           props: { ...binding.props, placeholder: true },
         }))
       )
-    }, { history: 'ignore' }) // Ignore intermediate steps in history
+    })
   }
 
   override onTranslate(shape: ICustomShape, initialShape: ICustomShape) {
@@ -335,7 +335,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
           },
         })
       }
-    }, { history: 'ignore' }) // Ignore intermediate drag steps
+    })
   }
 
   override onTranslateEnd(shape: ICustomShape, initialShape: ICustomShape) {
@@ -388,7 +388,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
         x: targetContainer.x,
         y: targetContainer.y,
       })
-    }) // This batch will be recorded in history
+    })
   }
 
   override getShapeUtil(shape: ICustomShape) {
@@ -448,18 +448,28 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
 
   override onAfterHistoryChange = () => {
     // Refresh all container layouts when history changes
-    this.editor.getShapesByType('page').forEach(container => {
-      this.editor.updateShape({
-        id: container.id,
-        type: 'page',
-        x: container.x,
-        y: container.y,
+    this.editor.batch(() => {
+      // First update all bindings to trigger layout recalculation
+      const containers = this.editor.getShapesByType('page')
+      containers.forEach(container => {
+        const bindings = this.editor.getBindingsFromShape(container, 'layout')
+        bindings.forEach(binding => {
+          this.editor.updateBinding(binding)
+        })
+        
+        // Then update container to refresh layout
+        this.editor.updateShape({
+          id: container.id,
+          type: 'page',
+          x: container.x,
+          y: container.y,
+        })
       })
     })
   }
 
   override isEditing(shape: ICustomShape) {
-    return this.editor.isShapeEditing(shape)
+    return this.editor.getEditingShape() === shape.id
   }
 
   override onDoubleClick = (shape: ICustomShape) => {
@@ -488,70 +498,68 @@ export class SectionTool extends StateNode {
 
     const id = createShapeId()
     
-    this.editor.history.ignore(() => {
-      this.editor.batch(() => {
-        this.editor.createShape({
-          id,
-          type: 'section',
-          x: currentPagePoint.x - 100,
-          y: currentPagePoint.y - 50,
+    this.editor.batch(() => {
+      this.editor.createShape({
+        id,
+        type: 'section',
+        x: currentPagePoint.x - 100,
+        y: currentPagePoint.y - 50,
+        props: {
+          w: 200,
+          h: 100,
+          text: 'Section'
+        },
+      })
+
+      if (container) {
+        // Get existing bindings sorted by index
+        const bindings = this.editor.getBindingsFromShape(container, 'layout')
+          .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+
+        // Calculate position relative to container
+        const pageAnchor = currentPagePoint
+        const containerTransform = this.editor.getShapePageTransform(container)!
+        const localAnchor = containerTransform.clone().invert().applyToPoint(pageAnchor)
+        
+        // Find insertion index based on vertical position
+        let accumulatedHeight = 0
+        let insertIndex = 0
+        let belowIndex: string | undefined
+        let aboveIndex: string | undefined
+
+        for (const binding of bindings) {
+          const section = this.editor.getShape(binding.toId)
+          if (!section) continue
+          
+          // Check if we should insert before this section
+          if (localAnchor.y < accumulatedHeight + section.props.h/2) {
+            aboveIndex = binding.props.index
+            break
+          }
+          
+          belowIndex = binding.props.index
+          accumulatedHeight += section.props.h
+          insertIndex++
+        }
+
+        // Determine the new index
+        const newIndex = getIndexBetween(belowIndex, aboveIndex)
+
+        // Create binding at calculated position
+        this.editor.createBinding({
+          id: createBindingId(),
+          type: 'layout',
+          fromId: container.id,
+          toId: id,
           props: {
-            w: 200,
-            h: 100,
-            text: 'Section'
+            index: newIndex,
+            placeholder: false,
           },
         })
 
-        if (container) {
-          // Get existing bindings sorted by index
-          const bindings = this.editor.getBindingsFromShape(container, 'layout')
-            .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
-
-          // Calculate position relative to container
-          const pageAnchor = currentPagePoint
-          const containerTransform = this.editor.getShapePageTransform(container)!
-          const localAnchor = containerTransform.clone().invert().applyToPoint(pageAnchor)
-          
-          // Find insertion index based on vertical position
-          let accumulatedHeight = 0
-          let insertIndex = 0
-          let belowIndex: string | undefined
-          let aboveIndex: string | undefined
-
-          for (const binding of bindings) {
-            const section = this.editor.getShape(binding.toId)
-            if (!section) continue
-            
-            // Check if we should insert before this section
-            if (localAnchor.y < accumulatedHeight + section.props.h/2) {
-              aboveIndex = binding.props.index
-              break
-            }
-            
-            belowIndex = binding.props.index
-            accumulatedHeight += section.props.h
-            insertIndex++
-          }
-
-          // Determine the new index
-          const newIndex = getIndexBetween(belowIndex, aboveIndex)
-
-          // Create binding at calculated position
-          this.editor.createBinding({
-            id: createBindingId(),
-            type: 'layout',
-            fromId: container.id,
-            toId: id,
-            props: {
-              index: newIndex,
-              placeholder: false,
-            },
-          })
-
-          // Reparent the section to the container
-          this.editor.reparentShapes([id], container.id)
-        }
-      })
+        // Reparent the section to the container
+        this.editor.reparentShapes([id], container.id)
+      }
     })
   }
 } 

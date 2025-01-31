@@ -92,12 +92,16 @@ export class PageTool extends BaseBoxShapeTool {
   static id = 'page'
   static initial = 'idle'
   shapeType = 'page'
+  
+  private initialShapeId?: string
 
-  // These coordinates come from the box tool's drag start position
-  override onDragStart = () => {
+  onDragStart = () => {
     const { originPagePoint } = this.editor.inputs
+    const id = createShapeId()
+    this.initialShapeId = id
+    
     this.editor.createShape({
-      id: createShapeId(),
+      id,
       type: 'page',
       x: originPagePoint.x,
       y: originPagePoint.y,
@@ -108,14 +112,15 @@ export class PageTool extends BaseBoxShapeTool {
     })
   }
 
-  // Disable resizing during drag
-  override onDragMove = () => {
+  onDragMove = () => {
+    if (!this.initialShapeId) return
+    
     const { originPagePoint, currentPagePoint } = this.editor.inputs
     const minWidth = 800
     const minHeight = 600
     
     this.editor.updateShape({
-      id: this.initialShape.id,
+      id: this.initialShapeId,
       type: 'page',
       x: Math.min(originPagePoint.x, currentPagePoint.x),
       y: Math.min(originPagePoint.y, currentPagePoint.y),
@@ -126,5 +131,7 @@ export class PageTool extends BaseBoxShapeTool {
     })
   }
 
-  override onDragEnd = () => {}
+  onDragEnd = () => {
+    this.initialShapeId = undefined
+  }
 } 

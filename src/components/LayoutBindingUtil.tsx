@@ -1,4 +1,21 @@
-import { BindingUtil, TLBaseBinding, Vec } from 'tldraw'
+import { BindingUtil, TLBaseBinding, Vec, TLShape, TLBinding } from 'tldraw'
+
+// Define interfaces for the shapes we're working with
+interface PageShape extends TLShape {
+  type: 'page'
+  props: {
+    width: number
+    height: number
+  }
+}
+
+interface SectionShape extends TLShape {
+  type: 'section'
+  props: {
+    w: number
+    h: number
+  }
+}
 
 type LayoutBinding = TLBaseBinding<
   'layout',
@@ -18,28 +35,32 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
     }
   }
 
-  onAfterCreate({ binding }) {
+  onAfterCreate({ binding }: { binding: LayoutBinding }) {
     this.updateElementsForContainer(binding)
   }
 
-  onAfterChange({ bindingAfter }) {
+  onAfterChange({ bindingAfter }: { bindingAfter: LayoutBinding }) {
     this.updateElementsForContainer(bindingAfter)
   }
 
-  onAfterChangeFromShape({ binding }) {
+  onAfterChangeFromShape({ binding }: { binding: LayoutBinding }) {
     this.updateElementsForContainer(binding)
   }
 
-  onAfterDelete({ binding }) {
+  onAfterDelete({ binding }: { binding: LayoutBinding }) {
     this.updateElementsForContainer(binding)
   }
 
-  private updateElementsForContainer({ props: { placeholder }, fromId: containerId, toId }) {
-    const container = this.editor.getShape(containerId)
+  private updateElementsForContainer({ 
+    props: { placeholder }, 
+    fromId: containerId, 
+    toId 
+  }: LayoutBinding) {
+    const container = this.editor.getShape(containerId) as PageShape
     if (!container) return
 
     const bindings = this.editor.getBindingsFromShape(container, 'layout')
-      .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+      .sort((a, b) => ((a.props as any).index > (b.props as any).index ? 1 : -1))
     
     if (bindings.length === 0) return
 
@@ -48,7 +69,7 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
     // Update positions for all sections, including placeholders
     for (let i = 0; i < bindings.length; i++) {
       const binding = bindings[i]
-      const shape = this.editor.getShape(binding.toId)
+      const shape = this.editor.getShape(binding.toId) as SectionShape
       if (!shape) continue
 
       if (binding.toId === toId && placeholder) {
@@ -84,7 +105,7 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
     if (totalHeight !== container.props.height) {
       this.editor.updateShape({
         id: container.id,
-        type: 'container',
+        type: 'page',
         props: { 
           ...container.props,
           height: Math.max(totalHeight, 0)
@@ -93,9 +114,9 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
     }
   }
 
-  override afterCreateBinding(binding: TLBinding): void {
-    const container = this.editor.getShape(binding.fromId)
-    const section = this.editor.getShape(binding.toId)
+  afterCreateBinding(binding: LayoutBinding): void {
+    const container = this.editor.getShape(binding.fromId) as PageShape
+    const section = this.editor.getShape(binding.toId) as SectionShape
     
     if (container && section) {
       // Immediately update section position to container's layout
