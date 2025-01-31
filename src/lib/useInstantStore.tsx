@@ -12,15 +12,28 @@ import {
   uniqueId,
   TLShapeId,
   TLStore,
+  TLShape,
+  TLBaseShape,
+  BaseBoxShape,
 } from "tldraw";
-import { SectionShapeUtil } from '@/components/SectionTool'
-import { PageShapeUtil } from '@/components/PageTool'
-import { LayoutBindingUtil } from '@/components/LayoutBindingUtil'
-import { StackShapeUtil } from '@/components/StackTool'
+import { BuilderShapeUtil } from '@/components/BuilderTool'
 
 import type { DrawingState } from "@/types";
 import { db } from "@/config";
 import { updateDrawingState } from "@/mutators";
+
+// Define types for legacy shapes that need migration
+interface LegacyShapeProps {
+  text?: string;
+  content?: string;
+  width?: number;
+  height?: number;
+}
+
+type LegacyShape = BaseBoxShape<string, LegacyShapeProps> & {
+  x?: number;
+  y?: number;
+}
 
 export function useInstantStore({
   drawingId,
@@ -67,8 +80,8 @@ export function useInstantStore({
     let lifecycleState: "pending" | "ready" | "closed" = "pending";
     const unsubs: (() => void)[] = [];
     const tlStore = createTLStore({
-      shapeUtils: [...defaultShapeUtils, SectionShapeUtil, PageShapeUtil, StackShapeUtil],
-      bindingUtils: [...defaultBindingUtils, LayoutBindingUtil],
+      shapeUtils: [...defaultShapeUtils, BuilderShapeUtil],
+      bindingUtils: [...defaultBindingUtils],
     });
 
     db._core.subscribeQuery(
@@ -100,43 +113,41 @@ export function useInstantStore({
       sync(tldrawEventToStateSlice(event, localSourceId));
     }
 
-    function initDrawing(state: DrawingState) {
-      // Migrate container types to page and add bg to sections
+    function initDrawing(state: Record<string, LegacyShape>) {
       const migratedState = Object.fromEntries(
         Object.entries(state).map(([key, value]) => {
-          // Rename container to page
-          if (value?.type === 'container') {
+          if (!value) return [key, value];
+
+          if (value.type === 'builder' || value.type === 'container' || value.type === 'section' || value.type === 'stack') {
+            const width = typeof value.w === 'number' ? value.w : 
+                         typeof value.props?.w === 'number' ? value.props.w : 200;
+            const height = typeof value.h === 'number' ? value.h : 
+                          typeof value.props?.h === 'number' ? value.props.h : 50;
+
             return [
               key,
               {
-                ...value,
-                type: 'page',
-              }
-            ]
-          }
-          // Add default bg and textStyle to sections
-          if (value?.type === 'section') {
-            return [
-              key,
-              {
-                ...value,
+                id: value.id,
+                typeName: 'shape',
+                type: 'builder',
+                parentId: value.parentId,
+                index: value.index,
+                x: typeof value.x === 'number' ? value.x : (1200 - 200) / 2,
+                y: typeof value.y === 'number' ? value.y : 100,
+                rotation: 0,
+                isLocked: false,
+                opacity: 1,
                 props: {
-                  ...value.props,
-                  bg: value.props?.bg ?? 'rgba(255,255,255,0.5)',
-                  textStyle: value.props?.textStyle ?? 'heading',
+                  text: value.props?.text || value.props?.content || 'New todo',
+                  isComplete: false,
                 },
-              }
-            ]
-          }
-          // Ensure stack positions are numbers
-          if (value?.type === 'stack') {
-            return [
-              key,
-              {
-                ...value,
-                x: typeof value.x === 'number' ? value.x : 0,
-                y: typeof value.y === 'number' ? value.y : 0,
-              }
+                meta: value.meta || {},
+                // BaseBoxShape properties
+                size: {
+                  w: width,
+                  h: height,
+                },
+              } as TLShape
             ]
           }
           return [key, value]
@@ -223,27 +234,40 @@ function tldrawEventToStateSlice(
 
 function syncInstantStateToTldrawStore(
   store: TLStore,
-  state: DrawingState,
+  state: Record<string, LegacyShape>,
   localSourceId: string
 ) {
   const migratedUpdates = Object.values(state).map((item) => {
-    // Migrate container to page
-    if (item?.type === 'container') {
+    if (!item) return item;
+
+    if (item.type === 'builder' || item.type === 'container' || item.type === 'section' || item.type === 'stack') {
+      const width = typeof item.w === 'number' ? item.w : 
+                   typeof item.props?.w === 'number' ? item.props.w : 200;
+      const height = typeof item.h === 'number' ? item.h : 
+                    typeof item.props?.h === 'number' ? item.props.h : 50;
+
       return {
-        ...item,
-        type: 'page',
-      }
-    }
-    // Migrate section bg and textStyle
-    if (item?.type === 'section') {
-      return {
-        ...item,
+        id: item.id,
+        typeName: 'shape',
+        type: 'builder',
+        parentId: item.parentId,
+        index: item.index,
+        x: typeof item.x === 'number' ? item.x : (1200 - 200) / 2,
+        y: typeof item.y === 'number' ? item.y : 100,
+        rotation: 0,
+        isLocked: false,
+        opacity: 1,
         props: {
-          ...item.props,
-          bg: item.props?.bg ?? 'rgba(255,255,255,0.5)',
-          textStyle: item.props?.textStyle ?? 'heading',
+          text: item.props?.text || item.props?.content || 'New todo',
+          isComplete: false,
         },
-      }
+        meta: item.meta || {},
+        // BaseBoxShape properties
+        size: {
+          w: width,
+          h: height,
+        },
+      } as TLShape
     }
     return item
   })

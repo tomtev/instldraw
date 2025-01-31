@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^1.4.0",
     "@instantdb/react": "^0.14.3",
     "lodash": "^4.17.21",
     "next": "14.2.4",
