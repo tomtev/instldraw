@@ -7,6 +7,7 @@ import { updateDrawingName } from "@/mutators";
 import { useInstantStore } from "@/lib/useInstantStore";
 import { useInstantPresence } from "@/lib/useInstantPresence";
 import { db, colorNames, localSourceId } from "@/config";
+import { TLDrawEditor } from "@/components/TLDrawEditor";
 
 export default function Page() {
   const auth = db.useAuth();
@@ -61,10 +62,10 @@ function InstantTldraw({ drawingId }: { drawingId: string }) {
 
   return (
     <div className="fixed inset-0 overflow-hidden flex flex-col">
-      <div className="flex flex-col md:flex-row text-sm justify-between">
-        <div className="flex gap-2 border-b border md:border-none p-2">
+      <div className="flex flex-col md:flex-row text-sm justify-between text-white bg-indigo-700">
+        <div className="flex gap-2 border-b border md:border-none p-2 ">
           <a className="font-mono font-bold" href="/">
-            {`<instldraw />`}
+            PAGE.FUN
           </a>
           <form
             className="flex items-center gap-1"
@@ -114,40 +115,15 @@ function InstantTldraw({ drawingId }: { drawingId: string }) {
           </select>
         </div>
       </div>
-      <Tldraw
-        autoFocus
+      <TLDrawEditor
         store={store}
-        components={{ DebugMenu: null, DebugPanel: null }}
-      >
-        {drawingId ? (
-          <InstantTldrawCursors
-            drawingId={drawingId}
-            user={{
-              id: localSourceId,
-              name: displayName,
-              color,
-            }}
-          />
-        ) : null}
-      </Tldraw>
+        drawingId={drawingId}
+        user={{
+          id: localSourceId,
+          name: displayName,
+          color,
+        }}
+      />
     </div>
   );
-}
-
-function InstantTldrawCursors({
-  drawingId,
-  user,
-}: {
-  drawingId: string;
-  user: { id: string; color: string; name: string };
-}) {
-  const editor = useEditor();
-
-  useInstantPresence({
-    editor,
-    drawingId,
-    user,
-  });
-
-  return null;
 }

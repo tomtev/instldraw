@@ -8,10 +8,15 @@ import {
   TLStoreWithStatus,
   createTLStore,
   defaultShapeUtils,
+  defaultBindingUtils,
   uniqueId,
   TLShapeId,
   TLStore,
 } from "tldraw";
+import { SectionShapeUtil } from '@/components/SectionTool'
+import { PageShapeUtil } from '@/components/PageTool'
+import { LayoutBindingUtil } from '@/components/LayoutBindingUtil'
+import { StackShapeUtil } from '@/components/StackTool'
 
 import type { DrawingState } from "@/types";
 import { db } from "@/config";
@@ -62,7 +67,8 @@ export function useInstantStore({
     let lifecycleState: "pending" | "ready" | "closed" = "pending";
     const unsubs: (() => void)[] = [];
     const tlStore = createTLStore({
-      shapeUtils: [...defaultShapeUtils],
+      shapeUtils: [...defaultShapeUtils, SectionShapeUtil, PageShapeUtil, StackShapeUtil],
+      bindingUtils: [...defaultBindingUtils, LayoutBindingUtil],
     });
 
     db._core.subscribeQuery(
@@ -95,24 +101,66 @@ export function useInstantStore({
     }
 
     function initDrawing(state: DrawingState) {
+      // Migrate container types to page and add bg to sections
+      const migratedState = Object.fromEntries(
+        Object.entries(state).map(([key, value]) => {
+          // Rename container to page
+          if (value?.type === 'container') {
+            return [
+              key,
+              {
+                ...value,
+                type: 'page',
+              }
+            ]
+          }
+          // Add default bg and textStyle to sections
+          if (value?.type === 'section') {
+            return [
+              key,
+              {
+                ...value,
+                props: {
+                  ...value.props,
+                  bg: value.props?.bg ?? 'rgba(255,255,255,0.5)',
+                  textStyle: value.props?.textStyle ?? 'heading',
+                },
+              }
+            ]
+          }
+          // Ensure stack positions are numbers
+          if (value?.type === 'stack') {
+            return [
+              key,
+              {
+                ...value,
+                x: typeof value.x === 'number' ? value.x : 0,
+                y: typeof value.y === 'number' ? value.y : 0,
+              }
+            ]
+          }
+          return [key, value]
+        })
+      )
+
       unsubs.push(
         tlStore.listen(handleLocalChange, {
           source: "user",
           scope: "document",
         })
-      );
+      )
 
       tlStore.mergeRemoteChanges(() => {
         loadSnapshot(tlStore, {
           document: {
-            store: omitBy(state, (v) => v === null || v.meta.deleted) as Record<
+            store: omitBy(migratedState, (v) => v === null || v.meta.deleted) as Record<
               string,
               TLRecord
             >,
             schema: createTLSchema().serialize(),
           },
-        });
-      });
+        })
+      })
 
       setStoreWithStatus({
         status: "synced-remote",
@@ -178,33 +226,50 @@ function syncInstantStateToTldrawStore(
   state: DrawingState,
   localSourceId: string
 ) {
-  // Calling `put` or `remove` on the store would trigger our `handleLocalChange` listener.
-  // TLDraw offers a handy `mergeRemoteChanges` method to apply changes without triggering listeners,
-  // allowing us to avoid an infinite loop of syncing changes back and forth. :)
+  const migratedUpdates = Object.values(state).map((item) => {
+    // Migrate container to page
+    if (item?.type === 'container') {
+      return {
+        ...item,
+        type: 'page',
+      }
+    }
+    // Migrate section bg and textStyle
+    if (item?.type === 'section') {
+      return {
+        ...item,
+        props: {
+          ...item.props,
+          bg: item.props?.bg ?? 'rgba(255,255,255,0.5)',
+          textStyle: item.props?.textStyle ?? 'heading',
+        },
+      }
+    }
+    return item
+  })
+
   store.mergeRemoteChanges(() => {
     const removeIds = Object.values(state)
       .filter((e) => e?.meta.deleted && store.has(e.id))
-      .map((e) => e!.id);
+      .map((e) => e!.id)
 
-    const updates = Object.values(state).filter((item) => {
-      if (!item) return false;
-      if (item.meta.deleted) return false;
+    const updates = migratedUpdates.filter((item) => {
+      if (!item) return false
+      if (item.meta.deleted) return false
 
-      const tlItem = store.get(item?.id as TLShapeId);
-      // We add a unique id to each version of an item to avoid updating it with the same data
-      const diffVersion = tlItem?.meta.version !== item?.meta.version;
-      // If the item was not created by the local user, update it
-      const diffSource = item?.meta.source !== localSourceId;
+      const tlItem = store.get(item?.id as TLShapeId)
+      const diffVersion = tlItem?.meta.version !== item?.meta.version
+      const diffSource = item?.meta.source !== localSourceId
 
-      return diffSource && diffVersion;
-    });
+      return diffSource && diffVersion
+    })
 
     if (updates.length) {
-      store.put(updates as TLRecord[]);
+      store.put(updates as TLRecord[])
     }
 
     if (removeIds.length) {
-      store.remove(removeIds as TLShapeId[]);
+      store.remove(removeIds as TLShapeId[])
     }
-  });
+  })
 }

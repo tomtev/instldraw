@@ -14,7 +14,7 @@
     "next": "14.2.4",
     "react": "^18",
     "react-dom": "^18",
-    "tldraw": "^2.2.1"
+    "tldraw": "^3.7.2"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.6",
