@@ -73,6 +73,8 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
   }
 
   component(shape: PageShape) {
+    const isDraggingOver = shape.meta?.isDraggingOver
+
     return (
       <HTMLContainer
         style={{
@@ -82,6 +84,8 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
           border: '1px solid #e0e0e0',
           borderRadius: '8px',
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          transition: 'background-color 0.2s ease',
+          backgroundColor: isDraggingOver ? '#f0f9ff' : '#ffffff',
         }}
       />
     )

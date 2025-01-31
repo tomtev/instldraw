@@ -39,24 +39,48 @@ export function useInstantStore({
     const _drawingId = drawingId;
 
     // --- begin: throttling
-    // We can set a throttle wait time by adding `?x_throttle=100` to the URL
-    // We default to 200ms
-    // Setting `x_throttle=0` will bypass throttling
     let pendingState: DrawingState = {};
     const sp = new URL(location.href).searchParams;
-    const throttleWaitMs = sp.has("x_throttle")
-      ? parseInt(String(sp.get("x_throttle"))) || 0
-      : 200;
-    const enqueueSync = throttleWaitMs
-      ? throttle(runSync, throttleWaitMs, {
-          leading: true,
-          trailing: true,
-        })
-      : runSync;
+
+    // Use different throttle times for different operations
+    const DRAG_THROTTLE = 16; // ~60fps for smooth dragging
+    const DEFAULT_THROTTLE = 200; // default for other operations
+
+    // Get operation type from the state
+    const isDraggingOperation = (state: DrawingState) => {
+      return Object.values(state).some(record => 
+        record?.meta?.isTransforming || // Check for active transforms
+        record?.meta?.isDragging
+      );
+    };
+
+    // Dynamic throttle based on operation
+    function getThrottleTime(state: DrawingState) {
+      if (isDraggingOperation(state)) {
+        return DRAG_THROTTLE;
+      }
+      return sp.has("x_throttle") 
+        ? parseInt(String(sp.get("x_throttle"))) || DEFAULT_THROTTLE 
+        : DEFAULT_THROTTLE;
+    }
+
+    // Create throttled sync functions with dynamic wait times
+    function createDynamicThrottle(fn: Function) {
+      const throttled = {} as Record<number, Function>;
+      return (state: DrawingState) => {
+        const wait = getThrottleTime(state);
+        if (!throttled[wait]) {
+          throttled[wait] = throttle(fn, wait, { leading: true, trailing: true });
+        }
+        return throttled[wait];
+      };
+    }
+
+    const getDynamicSync = createDynamicThrottle(runSync);
 
     function sync(state: DrawingState) {
       pendingState = { ...pendingState, ...state };
-      enqueueSync();
+      getDynamicSync(state)();
     }
 
     function runSync() {
@@ -65,10 +89,24 @@ export function useInstantStore({
     }
 
     // --- end: throttling
+
+    // Add throttling to remote syncing as well
+    // This throttled function wraps syncInstantStateToTldrawStore
+    const throttledRemoteSync = createDynamicThrottle(
+      (tlStore: TLStore, state: DrawingState, localSourceId: string) => {
+        syncInstantStateToTldrawStore(tlStore, state, localSourceId);
+      }
+    );
+
     let lifecycleState: "pending" | "ready" | "closed" = "pending";
     const unsubs: (() => void)[] = [];
     const tlStore = createTLStore({
-      shapeUtils: [...defaultShapeUtils, SectionShapeUtil, PageShapeUtil, StackShapeUtil],
+      shapeUtils: [
+        ...defaultShapeUtils,
+        SectionShapeUtil,
+        PageShapeUtil,
+        StackShapeUtil,
+      ],
       bindingUtils: [...defaultBindingUtils, LayoutBindingUtil],
     });
 
@@ -89,7 +127,9 @@ export function useInstantStore({
         if (lifecycleState === "pending") {
           initDrawing(state);
         } else if (lifecycleState === "ready") {
-          syncInstantStateToTldrawStore(tlStore, state, localSourceId);
+          // Instead of calling syncInstantStateToTldrawStore directly,
+          // use the throttled version to optimize remote syncing.
+          throttledRemoteSync(tlStore, state, localSourceId);
         }
       }
     );
@@ -105,43 +145,17 @@ export function useInstantStore({
       // Migrate container types to page and add bg to sections
       const migratedState = Object.fromEntries(
         Object.entries(state).map(([key, value]) => {
-          if (!isShape(value)) return [key, value]
-          
-          // Rename container to page
-          if (value.type === 'container') {
-            return [
-              key,
-              {
-                ...value,
-                type: 'page',
-              }
-            ]
-          }
-          
-          // Add default bg and textStyle to sections
-          if (value.type === 'section') {
-            return [
-              key,
-              {
-                ...value,
-                props: {
-                  ...value.props,
-                  bg: value.props?.bg ?? 'rgba(255,255,255,0.5)',
-                  textStyle: value.props?.textStyle ?? 'heading',
-                },
-              }
-            ]
-          }
-          return [key, value]
+          if (!isShape(value)) return [key, value];
+          return [key, value];
         })
-      )
+      );
 
       unsubs.push(
         tlStore.listen(handleLocalChange, {
           source: "user",
           scope: "document",
         })
-      )
+      );
 
       tlStore.mergeRemoteChanges(() => {
         loadSnapshot(tlStore, {
@@ -152,8 +166,8 @@ export function useInstantStore({
             >,
             schema: createTLSchema().serialize(),
           },
-        })
-      })
+        });
+      });
 
       setStoreWithStatus({
         status: "synced-remote",
@@ -223,45 +237,56 @@ function syncInstantStateToTldrawStore(
   state: DrawingState,
   localSourceId: string
 ) {
-  const migratedUpdates = Object.values(state).map((item) => {
-    if (!isShape(item)) return item
+  // Skip if no changes
+  if (Object.keys(state).length === 0) return;
 
-    // Migrate section bg and textStyle
-    if (item.type === 'section') {
-      return {
-        ...item,
-        props: {
-          ...item.props,
-          bg: item.props?.bg ?? 'rgba(255,255,255,0.5)',
-          textStyle: item.props?.textStyle ?? 'heading',
-        },
-      }
-    }
-    return item
-  })
-
+  // Batch updates for better performance
   store.mergeRemoteChanges(() => {
-    const removeIds = Object.values(state)
-      .filter((e) => e?.meta.deleted && store.has(e.id))
-      .map((e) => e!.id)
+    // First collect all changes
+    const removeIds = [];
+    const updates = [];
 
-    const updates = migratedUpdates.filter((item) => {
-      if (!item) return false
-      if (item.meta.deleted) return false
+    for (const item of Object.values(state)) {
+      if (!item) continue;
 
-      const tlItem = store.get(item?.id as TLShapeId)
-      const diffVersion = tlItem?.meta.version !== item?.meta.version
-      const diffSource = item?.meta.source !== localSourceId
+      if (item.meta.deleted && store.has(item.id)) {
+        removeIds.push(item.id);
+        continue;
+      }
 
-      return diffSource && diffVersion
-    })
+      // Skip if same version and source
+      const tlItem = store.get(item.id as TLShapeId);
+      if (tlItem && 
+          tlItem.meta.version === item.meta.version && 
+          item.meta.source === localSourceId) {
+        continue;
+      }
 
+      // Handle shape migrations
+      if (isShape(item)) {
+        if (item.type === 'section') {
+          updates.push({
+            ...item,
+            props: {
+              ...item.props,
+              bg: item.props?.bg ?? 'rgba(255,255,255,0.5)',
+              textStyle: item.props?.textStyle ?? 'heading',
+            },
+          });
+          continue;
+        }
+      }
+
+      updates.push(item);
+    }
+
+    // Then apply all changes at once
     if (updates.length) {
-      store.put(updates as TLRecord[])
+      store.put(updates as TLRecord[]);
     }
 
     if (removeIds.length) {
-      store.remove(removeIds as TLShapeId[])
+      store.remove(removeIds as TLShapeId[]);
     }
-  })
+  });
 }

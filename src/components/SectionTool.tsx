@@ -16,7 +16,10 @@ import {
   IndexKey,
   TLShape,
   StyleProp,
-  TextLabel
+  TextLabel,
+  BaseBoxShapeTool,
+  BaseBoxShapeUtil,
+  DefaultColorStyle
 } from "tldraw"
 
 // Define the text style property
@@ -40,11 +43,43 @@ type ICustomShape = TLBaseShape<
   }
 >
 
+// Add this helper function at the top level
+function GhostSection({
+  width,
+  height,
+  style
+}: {
+  width: number
+  height: number
+  style?: React.CSSProperties
+}) {
+  return (
+    <div
+      style={{
+        width,
+        height,
+        background: `repeating-linear-gradient(
+          45deg,
+          rgba(128, 128, 128, 0.1),
+          rgba(128, 128, 128, 0.1) 4px,
+          rgba(128, 128, 128, 0.2) 4px,
+          rgba(128, 128, 128, 0.2) 8px
+        )`,
+        border: '2px dashed rgba(128, 128, 128, 0.4)',
+        borderRadius: '4px',
+        position: 'absolute',
+        pointerEvents: 'none',
+        ...style
+      }}
+    />
+  )
+}
+
 // Create the Section shape util
-export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
+export class SectionShapeUtil extends BaseBoxShapeUtil<ICustomShape> {
   static type = 'section' as const
   
-  static override props: RecordProps<ICustomShape> = {
+  static props = {
     w: T.number,
     h: T.number,
     text: T.string,
@@ -57,7 +92,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
       w: 1200,
       h: 500,
       text: 'Section',
-      bg: 'rgba(255,255,255,0.5)',
+      bg: 'rgba(255,255,255,1)',
       textStyle: 'heading',
     }
   }
@@ -82,9 +117,35 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     })
   }
 
-  override onResize(shape: ICustomShape, info: TLResizeInfo) {
+  override onResize(shape: ICustomShape, info: TLResizeInfo<ICustomShape>) {
     // Only allow vertical resizing
     const newHeight = Math.max(50, shape.props.h * info.scaleY)
+    
+    // Get all child shapes
+    const children = this.editor.getSortedChildIdsForParent(shape.id)
+    const childShapes = children.map(id => this.editor.getShape(id))
+    
+    // Calculate the scale factor for height
+    const heightScale = newHeight / shape.props.h
+    
+    // Update child positions
+    this.editor.batch(() => {
+      childShapes.forEach(child => {
+        if (!child) return
+        
+        // Calculate relative position from section's top
+        const relativeY = child.y - shape.y
+        
+        // Keep x position the same, only adjust y if needed
+        this.editor.updateShape({
+          id: child.id,
+          type: child.type,
+          x: child.x,
+          y: shape.y + relativeY // Keep absolute position
+        })
+      })
+    })
+
     const newShape = {
       ...shape,
       props: {
@@ -94,7 +155,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
       },
     }
 
-    // Immediately update container height
+    // Update container height if needed
     const binding = this.editor.getBindingsToShape(shape, 'layout')[0]
     if (binding) {
       const container = this.editor.getShape(binding.fromId)
@@ -153,9 +214,25 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     if (shapes.some(shape => shape.type === 'section' || shape.type === 'container')) return
 
     // When shapes are dragged over, reparent them to this section
-    if (!shapes.every((child) => child.parentId === shape.id)) {
-      this.editor.reparentShapes(shapes, shape.id)
-    }
+    // and maintain their absolute positions
+    shapes.forEach(draggedShape => {
+      if (draggedShape.parentId !== shape.id) {
+        const currentPagePoint = this.editor.getShapePageTransform(draggedShape)!.point()
+        
+        this.editor.reparentShapes([draggedShape.id], shape.id)
+        
+        // Update position relative to new parent
+        const newParentTransform = this.editor.getShapePageTransform(shape)!
+        const newLocalPoint = newParentTransform.invert().applyToPoint(currentPagePoint)
+        
+        this.editor.updateShape({
+          id: draggedShape.id,
+          type: draggedShape.type,
+          x: newLocalPoint.x,
+          y: newLocalPoint.y
+        })
+      }
+    })
   }
 
   override onDragShapesOut(_shape: ICustomShape, shapes: TLShape[]) {
@@ -164,9 +241,18 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
   }
 
   component(shape: ICustomShape) {
-    const { w, h, text, bg, textStyle } = shape.props
-    const isEditing = this.isEditing(shape)
+    const { w, h, bg, textStyle } = shape.props
+    const isGhostPlaceholder = shape.meta?.isGhostPlaceholder
+    const isDragging = shape.meta?.isDragging
     
+    if (isGhostPlaceholder) {
+      return (
+        <HTMLContainer style={{ pointerEvents: 'none' }}>
+          <GhostSection width={w} height={h} />
+        </HTMLContainer>
+      )
+    }
+
     const textStyles = {
       heading: { fontSize: '24px', fontWeight: 'bold' },
       subheading: { fontSize: '18px', fontWeight: 'semibold' },
@@ -176,16 +262,13 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     return (
       <HTMLContainer 
         style={{ 
-          width: w,
+          width: 1200,
           height: h,
-          backgroundColor: bg,
-          border: '2px dashed #666',
-          borderRadius: '4px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#333',
-          position: 'relative'
+          backgroundColor: bg, // Use the bg prop directly
+          boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.5)' : 'none',
+          scale: isDragging ? 0.95 : 1,
+          position: 'relative',
+          transition: 'all 0.2s ease',
         }}
       >
         <div style={{ 
@@ -194,38 +277,7 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
           left: '8px',
           ...textStyles[textStyle],
         }}>
-          {isEditing ? (
-            <TextLabel
-              id={shape.id}
-              type="text"
-              text={text}
-              size={textStyles[textStyle].fontSize}
-              font="draw"
-              isEditing={isEditing}
-              onChange={(text) => {
-                this.editor.updateShape({
-                  id: shape.id,
-                  type: 'section',
-                  props: {
-                    ...shape.props,
-                    text,
-                  },
-                })
-              }}
-              onBlur={() => {
-                this.editor.setEditingShape(null)
-              }}
-            />
-          ) : (
-            <div 
-              onDoubleClick={() => {
-                this.editor.setEditingShape(shape.id)
-              }}
-              style={{ pointerEvents: 'all', cursor: 'text' }}
-            >
-              {text}
-            </div>
-          )}
+          {shape.props.text}
         </div>
       </HTMLContainer>
     )
@@ -247,17 +299,30 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     })
   }
 
-  getBindingIndexForPosition(shape: ICustomShape, container: any, pageAnchor: Vec) {
+  getBindingIndexForPosition(shape: ICustomShape, container: any, pagePoint: Vec) {
     const allBindings = this.editor
       .getBindingsFromShape(container, 'layout')
       .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
 
     const siblings = allBindings.filter((b) => b.toId !== shape.id)
-    // Calculate order based on vertical position instead of horizontal
-    const order = Math.round((pageAnchor.y - container.y) / shape.props.h)
+    
+    // Find insertion point based on mouse position
+    let belowSib = null
+    let aboveSib = null
 
-    const belowSib = allBindings[order - 1]
-    const aboveSib = allBindings[order]
+    for (let i = 0; i < siblings.length; i++) {
+      const boundShape = this.editor.getShape(siblings[i].toId)
+      if (!boundShape) continue
+
+      const sectionMidY = boundShape.y + boundShape.props.h / 2
+      if (pagePoint.y < sectionMidY) {
+        aboveSib = siblings[i]
+        belowSib = siblings[i - 1]
+        break
+      }
+      belowSib = siblings[i]
+    }
+
     let index: IndexKey
 
     if (belowSib?.toId === shape.id) {
@@ -273,6 +338,16 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
 
   override onTranslateStart(shape: ICustomShape) {
     this.editor.batch(() => {
+      // Set isDragging meta
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDragging: true
+        }
+      })
+
       // Mark the binding as placeholder when starting to drag
       const bindings = this.editor.getBindingsToShape(shape, 'layout')
       this.editor.updateBindings(
@@ -292,13 +367,90 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
       })
       const targetContainer = this.getTargetContainer(shape, pageAnchor)
 
-      // Immediately clamp position to container bounds
+      // Remove any existing ghost sections
+      const ghostShapes = Array.from(this.editor.getCurrentPageShapes())
+        .filter(s => s.meta?.isGhostPlaceholder)
+      
+      ghostShapes.forEach(s => {
+        this.editor.deleteShape(s.id)
+      })
+
+      // If we have a valid target container, create a ghost section
+      if (targetContainer) {
+        const mousePosition = this.editor.inputs.currentPagePoint
+        const containerPoint = this.editor.getPointInParentSpace(targetContainer, mousePosition)
+        const bindings = this.editor.getBindingsFromShape(targetContainer, 'layout')
+          .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+
+        // Find the closest section based on mouse position
+        let insertIndex = 0
+        let insertY = targetContainer.y
+
+        // Calculate insertion point based on existing sections
+        for (let i = 0; i < bindings.length; i++) {
+          const boundShape = this.editor.getShape(bindings[i].toId)
+          if (!boundShape || boundShape.id === shape.id) continue
+
+          const sectionMidY = boundShape.y + boundShape.props.h / 2
+          if (mousePosition.y < sectionMidY) {
+            break
+          }
+          insertIndex = i + 1
+          insertY = boundShape.y + boundShape.props.h
+        }
+
+        // Create ghost section at fixed position
+        this.editor.createShape({
+          id: createShapeId(),
+          type: 'section',
+          x: targetContainer.x,
+          y: insertY,
+          props: {
+            ...shape.props,
+            text: '',
+            w: targetContainer.props.width || shape.props.w, // Use container width
+          },
+          meta: {
+            isGhostPlaceholder: true
+          },
+          parentId: targetContainer.id // Set parent to container
+        })
+
+        // Update binding index based on mouse position
+        const index = this.getBindingIndexForPosition(shape, targetContainer, mousePosition)
+        const existingBinding = this.editor.getBindingsFromShape(targetContainer, 'layout')
+          .find((b) => b.toId === shape.id)
+
+        if (existingBinding) {
+          if (existingBinding.props.index === index) return
+          this.editor.updateBinding({
+            ...existingBinding,
+            props: {
+              ...existingBinding.props,
+              placeholder: true,
+              index,
+            },
+          })
+        } else {
+          this.editor.createBinding({
+            id: createBindingId(),
+            type: 'layout',
+            fromId: targetContainer.id,
+            toId: shape.id,
+            props: {
+              index,
+              placeholder: true,
+            },
+          })
+        }
+      }
+
+      // Continue with existing binding logic
       if (!targetContainer) {
         const originalBinding = this.editor.getBindingsToShape(shape, 'layout')[0]
         if (originalBinding) {
           const container = this.editor.getShape(originalBinding.fromId)
           if (container) {
-            // Force position update during drag
             this.editor.updateShape({
               ...shape,
               x: container.x,
@@ -340,6 +492,25 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
 
   override onTranslateEnd(shape: ICustomShape, initialShape: ICustomShape) {
     this.editor.batch(() => {
+      // Reset isDragging meta
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDragging: false
+        }
+      })
+
+      // Remove any ghost sections
+      const ghostShapes = Array.from(this.editor.getCurrentPageShapes())
+        .filter(s => s.meta?.isGhostPlaceholder)
+      
+      ghostShapes.forEach(s => {
+        this.editor.deleteShape(s.id)
+      })
+
+      // Continue with existing translate end logic
       const pageAnchor = this.editor.getShapePageTransform(shape)!.applyToPoint({ 
         x: shape.props.w/2, 
         y: shape.props.h/2 
@@ -391,31 +562,6 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     })
   }
 
-
-
-
-  override onAfterHistoryChange = () => {
-    // Refresh all container layouts when history changes
-    this.editor.batch(() => {
-      // First update all bindings to trigger layout recalculation
-      const containers = this.editor.getShapesByType('page')
-      containers.forEach(container => {
-        const bindings = this.editor.getBindingsFromShape(container, 'layout')
-        bindings.forEach(binding => {
-          this.editor.updateBinding(binding)
-        })
-        
-        // Then update container to refresh layout
-        this.editor.updateShape({
-          id: container.id,
-          type: 'page',
-          x: container.x,
-          y: container.y,
-        })
-      })
-    })
-  }
-
   override isEditing(shape: ICustomShape) {
     return this.editor.getEditingShape() === shape.id
   }
@@ -424,151 +570,89 @@ export class SectionShapeUtil extends ShapeUtil<ICustomShape> {
     this.editor.setEditingShape(shape.id)
   }
 
-  // Add this override for duplication
-  override onDuplicate = (shape: ICustomShape, offset: Vec) => {
+  getCloneInfo(shape: ICustomShape) {
     const binding = this.editor.getBindingsToShape(shape, 'layout')[0]
     if (!binding) return
 
     const container = this.editor.getShape(binding.fromId)
     if (!container) return
 
-    // Get all existing bindings to find the last index
+    // Get existing bindings sorted by index
     const bindings = this.editor.getBindingsFromShape(container, 'layout')
       .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
 
-    // Get the last binding
-    const lastBinding = bindings[bindings.length - 1]
-    const lastIndex = lastBinding?.props?.index
+    // Find the original shape's binding
+    const originalBinding = bindings.find(b => b.toId === shape.id)
+    if (!originalBinding) return
 
-    // Create new index after the last one
-    const newIndex = getIndexBetween(lastIndex, null)
+    // Calculate new index for duplicated shape (right after original)
+    const originalIndex = originalBinding.props.index
+    const nextBinding = bindings.find(b => b.props.index > originalIndex)
+    const newIndex = getIndexBetween(originalIndex, nextBinding?.props.index)
 
-    // Create the duplicated shape at the container's position
-    const duplicatedShape = {
-      ...shape,
+    return {
       id: createShapeId(),
-      x: container.x, // Position at container's x
-      y: container.y, // Position at container's y - will be adjusted by layout
-      props: {
-        ...shape.props,
-        text: `${shape.props.text} (copy)` // Add (copy) to the text
-      }
-    }
-
-    // Create binding for the duplicated shape
-    this.editor.batch(() => {
-      // Create the duplicated shape first
-      const newShape = this.editor.createShape(duplicatedShape)
-
-      // Create binding to the same container
-      this.editor.createBinding({
-        id: createBindingId(),
-        type: 'layout',
-        fromId: container.id,
-        toId: newShape.id,
-        props: {
+      parentId: container.id,
+      meta: {
+        bindingProps: {
           index: newIndex,
           placeholder: false,
+        }
+      }
+    }
+  }
+
+  canReceiveNewChildrenOfType(shape: ICustomShape, type: string) {
+    return type !== 'section' && type !== 'page'
+  }
+
+  providesBackgroundForChildren() {
+    return true
+  }
+
+  override getStyleProps() {
+    return {
+      fill: DefaultColorStyle, // Use 'fill' instead of 'color'
+    }
+  }
+
+  override onStyleChange = (shape: ICustomShape, style: string, value: string) => {
+    if (style === 'fill') {
+      return {
+        ...shape,
+        props: {
+          ...shape.props,
+          bg: value,
         },
-      })
-
-      // Reparent the duplicated shape to the same container
-      this.editor.reparentShapes([newShape.id], container.id)
-
-      // Force container layout refresh
-      this.editor.updateShape({
-        id: container.id,
-        type: container.type,
-        x: container.x,
-        y: container.y,
-      })
-    })
-
-    return duplicatedShape
+      }
+    }
+    return shape
   }
 }
 
-// Create the Section tool
-export class SectionTool extends StateNode {
+// Create the Section tool extending BaseBoxShapeTool
+export class SectionTool extends BaseBoxShapeTool {
   static id = 'section'
+  static initial = 'idle'
+  shapeType = 'section'
 
-  onEnter = () => {
-    this.editor.setCursor({ type: 'cross', rotation: 0 })
-  }
-
-  onPointerDown = () => {
-    const { currentPagePoint } = this.editor.inputs
-    
-    // First check if we're creating over a page
-    const container = this.editor.getShapeAtPoint(currentPagePoint, {
+  override onCreate = (shape: ICustomShape): void | TLBaseShape<any, any> => {
+    // Check if we're creating over a page
+    const pageShape = this.editor.getShapeAtPoint(this.editor.inputs.currentPagePoint, {
       hitInside: true,
       filter: (shape) => shape.type === 'page',
     })
 
-    if (!container) return
+    if (!pageShape) return
 
-    const id = createShapeId()
-    
-    this.editor.batch(() => {
-      this.editor.createShape({
-        id,
-        type: 'section',
-        x: currentPagePoint.x - 100,
-        y: currentPagePoint.y - 50,
-        props: {
-          text: '123'
-        },
-      })
-
-      if (container) {
-        // Get existing bindings sorted by index
-        const bindings = this.editor.getBindingsFromShape(container, 'layout')
-          .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
-
-        // Calculate position relative to container
-        const pageAnchor = currentPagePoint
-        const containerTransform = this.editor.getShapePageTransform(container)!
-        const localAnchor = containerTransform.clone().invert().applyToPoint(pageAnchor)
-        
-        // Find insertion index based on vertical position
-        let accumulatedHeight = 0
-        let insertIndex = 0
-        let belowIndex: string | undefined
-        let aboveIndex: string | undefined
-
-        for (const binding of bindings) {
-          const section = this.editor.getShape(binding.toId)
-          if (!section) continue
-          
-          // Check if we should insert before this section
-          if (localAnchor.y < accumulatedHeight + section.props.h/2) {
-            aboveIndex = binding.props.index
-            break
-          }
-          
-          belowIndex = binding.props.index
-          accumulatedHeight += section.props.h
-          insertIndex++
-        }
-
-        // Determine the new index
-        const newIndex = getIndexBetween(belowIndex, aboveIndex)
-
-        // Create binding at calculated position
-        this.editor.createBinding({
-          id: createBindingId(),
-          type: 'layout',
-          fromId: container.id,
-          toId: id,
-          props: {
-            index: newIndex,
-            placeholder: false,
-          },
-        })
-
-        // Reparent the section to the container
-        this.editor.reparentShapes([id], container.id)
+    // Create the shape with the page as parent
+    return {
+      ...shape,
+      parentId: pageShape.id,
+      props: {
+        ...shape.props,
+        text: 'New Section'
       }
-    })
+    }
   }
 } 

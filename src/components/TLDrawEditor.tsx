@@ -125,10 +125,16 @@ export function TLDrawEditor({
     setEditor(editor)
   }, [])
 
-  useEffect(() => {
-    if (!editor) return
+  // Set whether verbose logging is enabled via an environment variable.
+  const isDebugEnabled = process.env.NEXT_PUBLIC_DEBUG_LOGS === 'true';
 
+  useEffect(() => {
+    if (!editor) return;
+
+    // Wrap change logging with a debug flag to reduce overhead during drag events.
     const handleChangeEvent: TLEventMapHandler<'change'> = (change) => {
+      if (!isDebugEnabled) return; // Skip logging if debugging isn't enabled
+      
       // Log created shapes
       for (const record of Object.values(change.changes.added)) {
         if (record.typeName === 'shape') {
@@ -140,15 +146,18 @@ export function TLDrawEditor({
             props: record.props,
             parentId: record.parentId,
             index: record.index,
-          })
+          });
         }
       }
 
       // Log updated shapes
       for (const [from, to] of Object.values(change.changes.updated)) {
-        if (from.typeName === 'instance' && to.typeName === 'instance' && 
-            from.currentPageId !== to.currentPageId) {
-          console.log(`Changed page: ${from.currentPageId} → ${to.currentPageId}`)
+        if (
+          from.typeName === 'instance' &&
+          to.typeName === 'instance' &&
+          from.currentPageId !== to.currentPageId
+        ) {
+          console.log(`Changed page: ${from.currentPageId} → ${to.currentPageId}`);
         } else if (from.typeName === 'shape' && to.typeName === 'shape') {
           console.log(`Updated: ${to.type} shape`, {
             id: to.id,
@@ -156,16 +165,16 @@ export function TLDrawEditor({
             from: {
               x: from.x,
               y: from.y,
-              props: from.props
+              props: from.props,
             },
             to: {
               x: to.x,
               y: to.y,
-              props: to.props
+              props: to.props,
             },
             parentId: to.parentId,
             index: to.index,
-          })
+          });
         }
       }
 
@@ -180,20 +189,20 @@ export function TLDrawEditor({
             props: record.props,
             parentId: record.parentId,
             index: record.index,
-          })
+          });
         }
       }
-    }
+    };
 
-    const cleanup = editor.store.listen(handleChangeEvent, { 
-      source: 'user', 
-      scope: 'all' 
-    })
+    const cleanup = editor.store.listen(handleChangeEvent, {
+      source: 'user',
+      scope: 'all',
+    });
 
     return () => {
-      cleanup()
-    }
-  }, [editor])
+      cleanup();
+    };
+  }, [editor, isDebugEnabled]);
 
   return (
     <div className="w-full h-full bg-gray-100">
