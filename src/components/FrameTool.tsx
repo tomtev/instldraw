@@ -86,12 +86,20 @@ export class FrameShapeUtil extends BaseBoxShapeUtil<IFrameShape> {
   // Handle dropping shapes into frames
   override onDragShapesOver = (frame: IFrameShape, shapes: TLShape[]) => {
     if (frame.props.layoutMode !== 'stack') {
-      // Use existing non-layout behavior
-      super.onDragShapesOver(frame, shapes)
+      // Don't allow dragging a parent into its child
+      const frameAncestors = new Set(this.editor.getShapeAncestors(frame).map(s => s.id))
+      const nonDescendants = shapes.filter(shape => !frameAncestors.has(shape.id))
+
+      if (nonDescendants.length > 0) {
+        this.editor.reparentShapes(
+          nonDescendants.map(s => s.id),
+          frame.id
+        )
+      }
       return
     }
 
-    // Get drop position to determine binding index
+    // Stack layout behavior
     const point = this.editor.inputs.currentPagePoint
     const index = this.getBindingIndexForPosition(frame, point)
 
