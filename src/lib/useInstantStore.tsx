@@ -18,11 +18,30 @@ import { SectionShapeUtil } from '@/components/SectionTool'
 import { PageShapeUtil } from '@/components/PageTool'
 import { LayoutBindingUtil } from '@/components/LayoutBindingUtil'
 import { StackShapeUtil } from '@/components/StackTool'
-import { FrameShapeUtil } from '@/components/FrameTool'
+import { FrameShapeUtil, FrameLayoutBindingUtil } from '@/components/FrameTool'
 
 import type { DrawingState } from "@/types";
 import { db } from "@/config";
 import { updateDrawingState } from "@/mutators";
+
+// Add a migration function to handle existing frames
+function migrateShape(value: any): any {
+  if (!isShape(value)) return value;
+  
+  // Migrate frame shapes to include layoutMode
+  if (value.type === 'custom-frame') {
+    return {
+      ...value,
+      props: {
+        ...value.props,
+        layoutMode: value.props.layoutMode || 'none',
+        padding: value.props.padding || 16,
+      },
+    };
+  }
+  
+  return value;
+}
 
 export function useInstantStore({
   drawingId,
@@ -106,7 +125,10 @@ export function useInstantStore({
         ...defaultShapeUtils,
         FrameShapeUtil,
       ],
-      bindingUtils: [...defaultBindingUtils],
+      bindingUtils: [
+        ...defaultBindingUtils,
+        FrameLayoutBindingUtil,
+      ],
     });
 
     db._core.subscribeQuery(
@@ -144,8 +166,7 @@ export function useInstantStore({
       // Migrate container types to page and add bg to sections
       const migratedState = Object.fromEntries(
         Object.entries(state).map(([key, value]) => {
-          if (!isShape(value)) return [key, value];
-          return [key, value];
+          return [key, migrateShape(value)];
         })
       );
 

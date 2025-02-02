@@ -16,7 +16,7 @@ import {
   stopEventPropagation,
 } from "tldraw";
 import { useInstantPresence } from "@/lib/useInstantPresence";
-import { FrameTool, FrameShapeUtil } from './FrameTool'
+import { FrameTool, FrameShapeUtil, FrameLayoutBindingUtil } from './FrameTool'
 import { useCallback, useEffect, useState } from 'react'
 import { Editor, TLEventMapHandler } from 'tldraw'
 
@@ -238,6 +238,7 @@ export function TLDrawEditor({
         overrides={uiOverrides}
         assetUrls={customAssetUrls}
         shapeUtils={[FrameShapeUtil]}
+        bindingUtils={[FrameLayoutBindingUtil]}
         tools={[FrameTool]}
         components={components}
         options={{ maxPages: 1 }}

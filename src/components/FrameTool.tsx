@@ -14,15 +14,40 @@ import {
   useEditor,
   TLShapeId,
   TLResizeInfo,
+  TLBaseBinding,
+  createBindingId,
+  getIndexBetween,
+  IndexKey,
+  BindingUtil,
+  Vec,
 } from "tldraw"
 
-// Define the shape type similar to TLFrameShape
+// Add binding type for frame layouts
+type FrameLayoutBinding = TLBaseBinding<
+  'frame-layout',
+  {
+    index: IndexKey
+    placeholder: boolean
+  }
+>
+
+// Add layout mode enum
+const FrameLayoutMode = {
+  none: 'none',
+  stack: 'stack',
+} as const
+
+type FrameLayoutMode = (typeof FrameLayoutMode)[keyof typeof FrameLayoutMode]
+
+// Update IFrameShape to use the enum type
 type IFrameShape = TLBaseShape<
   'custom-frame',
   {
     w: number
     h: number
-    name: string // Changed from title to name to match tldraw
+    name: string
+    layoutMode: FrameLayoutMode
+    padding: number
   }
 >
 
@@ -34,13 +59,17 @@ export class FrameShapeUtil extends BaseBoxShapeUtil<IFrameShape> {
     w: T.number,
     h: T.number,
     name: T.string,
+    layoutMode: T.literalEnum<FrameLayoutMode>('none', 'stack'),
+    padding: T.number,
   }
 
   getDefaultProps(): IFrameShape['props'] {
     return {
-      w: 160 * 2, // Match tldraw defaults
+      w: 160 * 2,
       h: 90 * 2,
       name: '',
+      layoutMode: 'none' as FrameLayoutMode,
+      padding: 16,
     }
   }
 
@@ -56,16 +85,62 @@ export class FrameShapeUtil extends BaseBoxShapeUtil<IFrameShape> {
 
   // Handle dropping shapes into frames
   override onDragShapesOver = (frame: IFrameShape, shapes: TLShape[]) => {
-    // Don't allow dragging a parent into its child
-    const frameAncestors = new Set(this.editor.getShapeAncestors(frame).map(s => s.id))
-    const nonDescendants = shapes.filter(shape => !frameAncestors.has(shape.id))
-
-    if (nonDescendants.length > 0) {
-      this.editor.reparentShapes(
-        nonDescendants.map(s => s.id),
-        frame.id
-      )
+    if (frame.props.layoutMode !== 'stack') {
+      // Use existing non-layout behavior
+      super.onDragShapesOver(frame, shapes)
+      return
     }
+
+    // Get drop position to determine binding index
+    const point = this.editor.inputs.currentPagePoint
+    const index = this.getBindingIndexForPosition(frame, point)
+
+    // Create or update layout binding
+    shapes.forEach(shape => {
+      const existingBinding = this.editor
+        .getBindingsWithShapeIds(frame.id, shape.id)
+        .find(b => b.type === 'frame-layout')
+
+      if (existingBinding) {
+        this.editor.updateBinding({
+          ...existingBinding,
+          props: {
+            index,
+            placeholder: true,
+          },
+        })
+      } else {
+        this.editor.createBinding({
+          id: createBindingId(),
+          type: 'frame-layout',
+          fromId: frame.id,
+          toId: shape.id,
+          props: {
+            index,
+            placeholder: true,
+          },
+        })
+      }
+    })
+  }
+
+  private getBindingIndexForPosition(frame: IFrameShape, point: Vec) {
+    const bindings = this.editor
+      .getBindingsWithShapeIds(frame.id)
+      .filter(b => b.type === 'frame-layout')
+      .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+
+    const relativeY = point.y - frame.y
+    const itemHeight = 100 // Approximate height of items
+    const order = Math.floor(relativeY / (itemHeight + frame.props.padding))
+    
+    const belowBinding = bindings[order - 1]
+    const aboveBinding = bindings[order]
+
+    return getIndexBetween(
+      belowBinding?.props.index,
+      aboveBinding?.props.index
+    )
   }
 
   override onDragShapesOut = (frame: IFrameShape, shapes: TLShape[]) => {
@@ -162,7 +237,17 @@ export class FrameShapeUtil extends BaseBoxShapeUtil<IFrameShape> {
   }
 
   // Add these methods from the official implementation
-  override canBind = () => false
+  override canBind = (props: {
+    type: string
+    fromShape: TLShape
+    toShape: TLShape
+  }): boolean => {
+    return (
+      props.type === 'frame-layout' &&
+      props.fromShape.type === 'custom-frame' &&
+      props.fromShape.props.layoutMode === 'stack'
+    )
+  }
   
   override canEdit = () => true
   
@@ -194,6 +279,43 @@ export class FrameShapeUtil extends BaseBoxShapeUtil<IFrameShape> {
         meta: { ...shape.meta, isEmpty: true },
       })
     }
+  }
+
+  // Add method to update layout
+  updateLayout(frame: IFrameShape) {
+    if (frame.props.layoutMode !== 'stack') return
+
+    const bindings = this.editor
+      .getBindingsWithShapeIds(frame.id)
+      .filter(b => b.type === 'frame-layout')
+      .sort((a, b) => (a.props.index > b.props.index ? 1 : -1))
+
+    let currentY = frame.props.padding
+
+    bindings.forEach(binding => {
+      const shape = this.editor.getShape(binding.toId)
+      if (!shape) return
+
+      if (!binding.props.placeholder) {
+        this.editor.updateShape({
+          id: shape.id,
+          x: frame.x + frame.props.padding,
+          y: frame.y + currentY,
+        })
+      }
+
+      const bounds = this.editor.getShapeGeometry(shape).bounds
+      currentY += bounds.height + frame.props.padding
+    })
+
+    // Update frame height to fit content
+    this.editor.updateShape({
+      id: frame.id,
+      props: {
+        ...frame.props,
+        h: Math.max(currentY, frame.props.h),
+      },
+    })
   }
 }
 
@@ -285,4 +407,23 @@ export class FrameTool extends BaseBoxShapeTool {
 
   // Allow free resizing by default (aspect ratio only when holding shift)
   override isAspectRatioLocked = false
+}
+
+// Add a FrameLayoutBindingUtil
+export class FrameLayoutBindingUtil extends BindingUtil<FrameLayoutBinding> {
+  static type = 'frame-layout' as const
+
+  getDefaultProps(): FrameLayoutBinding['props'] {
+    return {
+      index: 'a1',
+      placeholder: true,
+    }
+  }
+
+  onAfterChange({ bindingAfter }: { bindingAfter: FrameLayoutBinding }): void {
+    const frame = this.editor.getShape(bindingAfter.fromId)
+    if (frame?.type === 'custom-frame') {
+      ;(this.editor.getShapeUtil(frame) as FrameShapeUtil).updateLayout(frame)
+    }
+  }
 } 
