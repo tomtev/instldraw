@@ -65,35 +65,14 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
     
     if (bindings.length === 0) return
 
-    // If any section in the container is currently being dragged or hovered,
-    // skip the layout update to prevent blinking.
-    const anyDragActive = bindings.some(binding => {
-      const shape = this.editor.getShape(binding.toId) as SectionShape
-      return shape && (shape.meta?.isDraggingOver || shape.meta?.isDragging)
-    })
-    if (anyDragActive) return
-
     // Batch all updates together
     this.editor.batch(() => {
       let currentY = 0
-      let indexCounter = 0
 
       // Update positions for all sections
       for (const binding of bindings) {
         const shape = this.editor.getShape(binding.toId) as SectionShape
         if (!shape) continue
-
-        // Update binding index to maintain proper z-order
-        if (binding.props.index !== `a${indexCounter}`) {
-          this.editor.updateBinding({
-            ...binding,
-            props: {
-              ...binding.props,
-              index: `a${indexCounter}`
-            }
-          })
-        }
-        indexCounter++
 
         // Skip placeholder bindings during dragging
         if (binding.toId === toId && placeholder) {
@@ -101,11 +80,18 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
           continue
         }
 
-        // Calculate new position
+        // If the section is actively being dragged or hovered,
+        // "lock" its position by skipping any update (but add its height to currentY)
+        if (shape.meta?.isDraggingOver || shape.meta?.isDragging) {
+          currentY += shape.props.h
+          continue
+        }
+
+        // Calculate the new position
         const newY = currentY
         currentY += shape.props.h
 
-        // Only update if position actually changed
+        // Only update if the position is actually different
         if (shape.x !== container.x || shape.y !== container.y + newY) {
           this.editor.updateShape({
             id: binding.toId,
@@ -116,7 +102,7 @@ export class LayoutBindingUtil extends BindingUtil<LayoutBinding> {
               ...shape.props,
               w: container.props.width,
             },
-            // Preserve existing meta (e.g. temporary drag state)
+            // Preserve any temporary meta (like isDraggingOver)
             meta: { ...shape.meta }
           })
         }

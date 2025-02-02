@@ -210,40 +210,123 @@ export class SectionShapeUtil extends BaseBoxShapeUtil<ICustomShape> {
   }
 
   override onDragShapesOver(shape: ICustomShape, shapes: TLShape[]) {
-    // Skip if any shape is a section or container
-    if (shapes.some(shape => shape.type === 'section' || shape.type === 'container')) return
+    if (shapes.some(s => s.type === 'section' || s.type === 'page')) return
 
-    // When shapes are dragged over, reparent them to this section
-    // and maintain their absolute positions
-    shapes.forEach(draggedShape => {
-      if (draggedShape.parentId !== shape.id) {
-        const currentPagePoint = this.editor.getShapePageTransform(draggedShape)!.point()
-        
-        this.editor.reparentShapes([draggedShape.id], shape.id)
-        
-        // Update position relative to new parent
-        const newParentTransform = this.editor.getShapePageTransform(shape)!
-        const newLocalPoint = newParentTransform.invert().applyToPoint(currentPagePoint)
-        
+    const pagePoint = this.editor.inputs.currentPagePoint
+    const bounds = this.editor.getShapePageBounds(shape)
+
+    if (!bounds?.containsPoint(pagePoint)) {
+      if (shape.meta?.isDraggingOver) {
         this.editor.updateShape({
-          id: draggedShape.id,
-          type: draggedShape.type,
-          x: newLocalPoint.x,
-          y: newLocalPoint.y
+          id: shape.id,
+          type: 'section',
+          meta: {
+            ...shape.meta,
+            isDraggingOver: false
+          }
         })
       }
+      return
+    }
+
+    this.editor.batch(() => {
+      if (!shape.meta?.isDraggingOver) {
+        this.editor.updateShape({
+          id: shape.id,
+          type: 'section',
+          meta: {
+            ...shape.meta,
+            isDraggingOver: true
+          }
+        })
+      }
+
+      shapes.forEach(draggedShape => {
+        if (draggedShape.parentId !== shape.id) {
+          const currentPagePoint = this.editor.getShapePageTransform(draggedShape)!.point()
+          this.editor.reparentShapes([draggedShape.id], shape.id)
+          
+          const newParentTransform = this.editor.getShapePageTransform(shape)!
+          const newLocalPoint = newParentTransform.invert().applyToPoint(currentPagePoint)
+          
+          this.editor.updateShape({
+            id: draggedShape.id,
+            type: draggedShape.type,
+            x: newLocalPoint.x,
+            y: newLocalPoint.y
+          })
+        }
+      })
     })
   }
 
-  override onDragShapesOut(_shape: ICustomShape, shapes: TLShape[]) {
+  override onDragShapesEnter(shape: ICustomShape, shapes: TLShape[]) {
+    if (shapes.some(s => s.type === 'section' || s.type === 'page')) return
+
+    const pagePoint = this.editor.inputs.currentPagePoint
+    const bounds = this.editor.getShapePageBounds(shape)
+    
+    if (bounds?.containsPoint(pagePoint)) {
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDraggingOver: true
+        }
+      })
+    }
+  }
+
+  override onDragShapesExit(shape: ICustomShape) {
+    if (shape.meta?.isDraggingOver) {
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDraggingOver: false
+        }
+      })
+    }
+  }
+
+  override onDragShapesOut(shape: ICustomShape, shapes: TLShape[]) {
+    // Only clear if we were actually dragging over
+    if (shape.meta?.isDraggingOver) {
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDraggingOver: false
+        }
+      })
+    }
+
     // When shapes are dragged out, reparent them back to the page
     this.editor.reparentShapes(shapes, this.editor.getCurrentPageId())
+  }
+
+  override onDragEnd(shape: ICustomShape) {
+    // Only clear if we were actually dragging over
+    if (shape.meta?.isDraggingOver) {
+      this.editor.updateShape({
+        id: shape.id,
+        type: 'section',
+        meta: {
+          ...shape.meta,
+          isDraggingOver: false
+        }
+      })
+    }
   }
 
   component(shape: ICustomShape) {
     const { w, h, bg, textStyle } = shape.props
     const isGhostPlaceholder = shape.meta?.isGhostPlaceholder
     const isDragging = shape.meta?.isDragging
+    const isDraggingOver = shape.meta?.isDraggingOver
     
     if (isGhostPlaceholder) {
       return (
@@ -262,13 +345,14 @@ export class SectionShapeUtil extends BaseBoxShapeUtil<ICustomShape> {
     return (
       <HTMLContainer 
         style={{ 
-          width: 1200,
+          width: w,
           height: h,
-          backgroundColor: bg, // Use the bg prop directly
+          backgroundColor: isDraggingOver ? 'rgba(59, 130, 246, 0.1)' : bg,
           boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.5)' : 'none',
           scale: isDragging ? 0.95 : 1,
           position: 'relative',
           transition: 'all 0.2s ease',
+          border: isDraggingOver ? '2px dashed rgb(59, 130, 246)' : 'none',
         }}
       >
         <div style={{ 
@@ -627,6 +711,18 @@ export class SectionShapeUtil extends BaseBoxShapeUtil<ICustomShape> {
       }
     }
     return shape
+  }
+
+  // Update the hitTestPoint method
+  override hitTestPoint(shape: ICustomShape, point: Vec): boolean {
+    // Convert point from parent space to page space
+    const parentTransform = this.editor.getShapeParentTransform(shape)
+    if (!parentTransform) return false
+    const pagePoint = parentTransform.applyToPoint(point)
+    
+    // Get shape bounds in page space
+    const bounds = this.editor.getShapePageBounds(shape)
+    return !!bounds?.containsPoint(pagePoint)
   }
 }
 

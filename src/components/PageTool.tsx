@@ -86,6 +86,7 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
           transition: 'background-color 0.2s ease',
           backgroundColor: isDraggingOver ? '#f0f9ff' : '#ffffff',
+          pointerEvents: 'none'
         }}
       />
     )
@@ -101,6 +102,19 @@ export class PageShapeUtil extends ShapeUtil<PageShape> {
       x: 0,
       y: 0,
     }
+  }
+
+  canReceiveNewChildrenOfType(shape: PageShape, type: string) {
+    // Only allow section shapes to be dropped directly into pages
+    return type === 'section'
+  }
+
+  override hitTestPoint(shape: PageShape, point: Vec, options = {}): boolean {
+    // Only hit test page if explicitly looking for containers
+    if (options.hitInside && !options.filter) {
+      return false
+    }
+    return super.hitTestPoint(shape, point, options)
   }
 }
 
