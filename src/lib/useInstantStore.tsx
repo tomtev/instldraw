@@ -18,6 +18,7 @@ import { SectionShapeUtil } from '@/components/SectionTool'
 import { PageShapeUtil } from '@/components/PageTool'
 import { LayoutBindingUtil } from '@/components/LayoutBindingUtil'
 import { StackShapeUtil } from '@/components/StackTool'
+import { FrameShapeUtil } from '@/components/FrameTool'
 
 import type { DrawingState } from "@/types";
 import { db } from "@/config";
@@ -103,11 +104,9 @@ export function useInstantStore({
     const tlStore = createTLStore({
       shapeUtils: [
         ...defaultShapeUtils,
-        SectionShapeUtil,
-        PageShapeUtil,
-        StackShapeUtil,
+        FrameShapeUtil,
       ],
-      bindingUtils: [...defaultBindingUtils, LayoutBindingUtil],
+      bindingUtils: [...defaultBindingUtils],
     });
 
     db._core.subscribeQuery(
@@ -237,12 +236,9 @@ function syncInstantStateToTldrawStore(
   state: DrawingState,
   localSourceId: string
 ) {
-  // Skip if no changes
   if (Object.keys(state).length === 0) return;
 
-  // Batch updates for better performance
   store.mergeRemoteChanges(() => {
-    // First collect all changes
     const removeIds = [];
     const updates = [];
 
@@ -254,7 +250,6 @@ function syncInstantStateToTldrawStore(
         continue;
       }
 
-      // Skip if same version and source
       const tlItem = store.get(item.id as TLShapeId);
       if (tlItem && 
           tlItem.meta.version === item.meta.version && 
@@ -262,25 +257,9 @@ function syncInstantStateToTldrawStore(
         continue;
       }
 
-      // Handle shape migrations
-      if (isShape(item)) {
-        if (item.type === 'section') {
-          updates.push({
-            ...item,
-            props: {
-              ...item.props,
-              bg: item.props?.bg ?? 'rgba(255,255,255,0.5)',
-              textStyle: item.props?.textStyle ?? 'heading',
-            },
-          });
-          continue;
-        }
-      }
-
       updates.push(item);
     }
 
-    // Then apply all changes at once
     if (updates.length) {
       store.put(updates as TLRecord[]);
     }

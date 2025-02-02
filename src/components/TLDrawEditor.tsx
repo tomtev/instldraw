@@ -13,82 +13,83 @@ import {
   TLComponents,
   TLUiAssetUrlOverrides,
   TLCameraOptions,
+  stopEventPropagation,
 } from "tldraw";
 import { useInstantPresence } from "@/lib/useInstantPresence";
-import { StarTool } from './StarTool'
-import { PageTool, PageShapeUtil } from './PageTool'
-import { SectionTool, SectionShapeUtil } from './SectionTool'
-import { LayoutBindingUtil } from './LayoutBindingUtil'
-import { StackTool, StackShapeUtil } from './StackTool'
+import { FrameTool, FrameShapeUtil } from './FrameTool'
 import { useCallback, useEffect, useState } from 'react'
 import { Editor, TLEventMapHandler } from 'tldraw'
+
+// Component that will be rendered on the canvas
+function OnCanvasComponent() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 200,
+        padding: 12,
+        borderRadius: 8,
+        backgroundColor: 'white',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        zIndex: 0,
+        userSelect: 'none',
+      }}
+      onPointerDown={stopEventPropagation}
+      onPointerMove={stopEventPropagation}
+    >
+      <p style={{ marginBottom: 8 }}>Count: {count}</p>
+      <button 
+        onClick={() => setCount(c => c + 1)}
+        style={{
+          padding: '4px 8px',
+          borderRadius: 4,
+          border: '1px solid #ddd',
+          background: '#fff',
+          cursor: 'pointer',
+        }}
+      >
+        Increment
+      </button>
+    </div>
+  )
+}
 
 const components: TLComponents = {
   Toolbar: (props) => {
     const tools = useTools()
-    const isStarSelected = useIsToolSelected(tools['star'])
-    const isPageSelected = useIsToolSelected(tools['page'])
-    const isSectionSelected = useIsToolSelected(tools['section'])
-    const isStackSelected = useIsToolSelected(tools['stack'])
+    const isFrameSelected = useIsToolSelected(tools['custom-frame'])
     
     return (
       <DefaultToolbar {...props}>
-        <TldrawUiMenuItem {...tools['star']} isSelected={isStarSelected} />
-        <TldrawUiMenuItem {...tools['page']} isSelected={isPageSelected} />
-        <TldrawUiMenuItem {...tools['section']} isSelected={isSectionSelected} />
-        <TldrawUiMenuItem {...tools['stack']} isSelected={isStackSelected} />
+        <TldrawUiMenuItem {...tools['custom-frame']} isSelected={isFrameSelected} />
         <DefaultToolbarContent />
       </DefaultToolbar>
     )
   },
+  OnTheCanvas: OnCanvasComponent,
 }
 
 const customAssetUrls: TLUiAssetUrlOverrides = {
   icons: {
-    'star-icon': '/star-icon.svg',  // Place your SVG file in the public folder
-    'page-icon': '/container-icon.svg',  // You'll need to add these icons
-    'section-icon': '/section-icon.svg',
-    'stack-icon': '/stack-icon.svg',
+    'frame-icon': '/frame-icon.svg',  // You'll need to add this icon
   },
 }
 
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
-    tools.star = {
-      id: 'star',
-      label: 'Star',
-      icon: 'star-icon',  // Reference the icon by its key
+    tools['custom-frame'] = {
+      id: 'custom-frame',
+      label: 'Frame',
+      icon: 'frame-icon',
       onSelect: () => {
-        editor.setCurrentTool('star')
+        editor.setCurrentTool('custom-frame')
       },
-      kbd: 's',
-    }
-    tools.page = {
-      id: 'page',
-      label: 'Page',
-      icon: 'page-icon',
-      onSelect: () => {
-        editor.setCurrentTool('page')
-      },
-      kbd: 'c',
-    }
-    tools.section = {
-      id: 'section',
-      label: 'Section',
-      icon: 'section-icon',
-      onSelect: () => {
-        editor.setCurrentTool('section')
-      },
-      kbd: 'x',
-    }
-    tools.stack = {
-      id: 'stack',
-      label: 'Stack',
-      icon: 'stack-icon',
-      onSelect: () => {
-        editor.setCurrentTool('stack')
-      },
-      kbd: 'k',
+      kbd: 'f',
     }
     return tools
   },
@@ -123,7 +124,32 @@ export function TLDrawEditor({
 
   const handleMount = useCallback((editor: Editor) => {
     setEditor(editor)
+    // Force snap mode on
+    editor.user.updateUserPreferences({
+      isSnapMode: true
+    })
   }, [])
+
+  useEffect(() => {
+    if (!editor) return
+
+    // Force snap mode back on if user tries to disable it
+    const unsubscribe = editor.store.listen('change', {
+      source: 'user',
+      scope: 'user_preferences',
+    }, () => {
+      const prefs = editor.user.getUserPreferences()
+      if (!prefs.isSnapMode) {
+        editor.user.updateUserPreferences({
+          isSnapMode: true
+        })
+      }
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  }, [editor])
 
   // Set whether verbose logging is enabled via an environment variable.
   const isDebugEnabled = process.env.NEXT_PUBLIC_DEBUG_LOGS === 'true';
@@ -211,15 +237,9 @@ export function TLDrawEditor({
         store={store}
         overrides={uiOverrides}
         assetUrls={customAssetUrls}
-        shapeUtils={[PageShapeUtil, SectionShapeUtil, StackShapeUtil]}
-        bindingUtils={[LayoutBindingUtil]}
-        tools={[StarTool, PageTool, SectionTool, StackTool]}
-        components={{
-          ...components,
-          DebugMenu: null,
-          DebugPanel: null,
-          Minimap: null,
-        }}
+        shapeUtils={[FrameShapeUtil]}
+        tools={[FrameTool]}
+        components={components}
         options={{ maxPages: 1 }}
         cameraOptions={CAMERA_OPTIONS}
         className="bg-transparent"
